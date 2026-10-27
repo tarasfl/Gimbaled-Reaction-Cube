@@ -9,7 +9,7 @@ class Dynamics2D:
         self.cube = cube
 
 
-    def derivatives(self, t, x):
+    def derivatives(self, t, x, rpm, gimbal_torque):
         self.cube.update_total_mass()   
 
         state = SystemState.from_vector(x)
@@ -26,13 +26,12 @@ class Dynamics2D:
 
 
 
-        work_rpm = 5000
+        work_rpm = rpm
         H = self.cube.flywheel.calculate_angular_momentum(work_rpm)
 
         gravity = self.cube.gravitational_torque(theta)
 
-
         theta_dd = (gravity + H * gamma_d * np.cos(gamma) - A_prime * gamma_d * theta_d) / A
-        gamma_dd = (self.cube.servo_motor.torque - H * theta_d * np.cos(gamma) + 0.5 * A_prime * theta_d**2) / B
+        gamma_dd = (gimbal_torque - H * theta_d * np.cos(gamma) + 0.5 * A_prime * theta_d**2) / B
 
         return np.array([theta_d, theta_dd, gamma_d, gamma_dd])

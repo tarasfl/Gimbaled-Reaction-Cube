@@ -30,13 +30,6 @@ class BrushlessMotor:
     def calculate_inertia(self):
         return 0.5 * self.mass * self.radius**2
 
-
-    def torque_required(self, flywheel, target_rpm):
-        inertia = flywheel.inertia + self.rotor_inertia
-        target_omega = target_rpm * 2 * np.pi / 60
-        delta_omega = target_omega - self.omega
-        return inertia * delta_omega
-
     def calculate_rpm(self, flywheel):
         inertia = flywheel.inertia + self.rotor_inertia
         target_omega = self.nominal_torque / inertia

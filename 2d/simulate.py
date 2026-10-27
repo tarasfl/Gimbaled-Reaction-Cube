@@ -1,8 +1,6 @@
-
-from scipy.integrate import solve_ivp
-import matplotlib.pyplot as plt
 import numpy as np
-from dynamics_2d import Dynamics2D
+from plotter import plot_result
+from simulation_runner import SimulationRunner
 
 from main import cube
 
@@ -10,35 +8,13 @@ from main import cube
 x0 = [
     0.0,  # theta
     0.0,  # theta_dot
-    0.0,  # gamma
+    np.deg2rad(-10.0),  # gamma
     0.0   # gamma_dot
 ]
 
-dynamics = Dynamics2D(cube)
+runner = SimulationRunner(cube)
+result = runner.run(x0, desired_gamma_deg=90.0, t_end=10.0)
 
-t_start = 0
-t_end = 10.0
+plot_result(result)
 
-t_eval = np.linspace(t_start, t_end, 10001)
-
-solution = solve_ivp(
-    fun=dynamics.derivatives,
-    t_span=(t_start, t_end),
-    y0=x0,
-    method="RK45",
-    t_eval=t_eval,
-    max_step=0.001,
-    rtol=1e-7,
-    atol=1e-9
-)
-
-theta, theta_dot, gamma, gamma_dot = solution.y
-
-plt.plot(solution.t, np.rad2deg(theta), label="Cube angle")
-plt.plot(solution.t, np.rad2deg(gamma), label="Gimbal angle")
-
-plt.xlabel("Time (s)")
-plt.ylabel("Angle (degrees)")
-plt.legend()
-plt.grid()
-plt.show()
+print("Cube total mass: ", cube.total_mass)
