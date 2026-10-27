@@ -51,6 +51,12 @@ class GimbalControl:
     def overspeed(self, t, x):
         return self.speed_limit - abs(x[3])
 
+    def flip_limit(self, t, x):
+        return np.pi / 2 - abs(x[0])
+
 
 GimbalControl.overspeed.terminal = True
 GimbalControl.overspeed.direction = -1
+
+GimbalControl.flip_limit.terminal = True
+GimbalControl.flip_limit.direction = -1
