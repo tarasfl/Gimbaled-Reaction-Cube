@@ -1,6 +1,6 @@
 class Gimbal:
 
-    def __init__(self, mass, outter_radii, inner_radii):
+    def __init__(self, mass:float, outter_radii:float, inner_radii:float):
         self.mass = mass
 
         self.outer_radii = outter_radii

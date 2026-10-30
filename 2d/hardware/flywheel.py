@@ -3,7 +3,7 @@ from hardware.brushless_motor import BrushlessMotor
 
 class Flywheel:
 
-    def __init__(self, outer_radii=0.065, inner_radii=0.045, thikness=0.01, density=2700):
+    def __init__(self, outer_radii:float=0.065, inner_radii:float=0.045, thikness:float=0.01, density:float=2700):
 
         # Dimensions of the flywheel Geometry
         self.outer_radii = outer_radii
@@ -20,7 +20,7 @@ class Flywheel:
         self.transverse_inertia = self.calculate_transverse_inertia()
 
         # RPMs
-        self.max_rpm = 7000
+        self.max_rpm = 12800
         self.work_rpm = 0
     
 

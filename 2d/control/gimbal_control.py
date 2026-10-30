@@ -4,10 +4,18 @@ import numpy as np
 class GimbalControl:
     """Saturated PD gimbal-angle controller with model-based coupling compensation."""
 
-    def __init__(self, cube, t_eval, work_rpm, initial_angle, desired_angle_deg, ready_rpm=5000.0):
+    def __init__(self, cube, t_eval, work_rpm, initial_angle, desired_angle_deg, ready_rpm, control_start=None):
         self.cube = cube
-        ready_indices = np.flatnonzero(work_rpm >= ready_rpm)
-        self.control_start = t_eval[ready_indices[0]]
+
+
+
+        if control_start is None:
+            ready_indices = np.flatnonzero(work_rpm >= ready_rpm)
+            control_start = (
+                t_eval[ready_indices[0]] if ready_indices.size else np.inf
+            )
+
+        self.control_start = control_start
 
         self.desired_angle = np.deg2rad(desired_angle_deg)
         angle_change = self.desired_angle - initial_angle

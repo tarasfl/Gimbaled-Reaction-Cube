@@ -31,7 +31,12 @@ class FloorConstraint:
 
     def _contact_event(self, wall):
         def contact(t, x):
-            return self._depth(wall, x)
+            depth = self._depth(wall, x)
+            if depth == 0.0 and wall.inward * x[1] >= 0.0:
+                # A state leaving the wall is not a new impact. Avoid an
+                # initial zero that solve_ivp can report at the restart time.
+                return np.finfo(float).eps
+            return depth
 
         contact.terminal = True
         contact.direction = -1
@@ -83,6 +88,14 @@ class FloorConstraint:
                 events=[*own_events, *stop_events],
                 **solver_options,
             )
+            if not segment.success:
+                raise RuntimeError(f"Integration failed at t={segment.t[-1]}: {segment.message}")
+
+            fired = next(
+                (i for i, te in enumerate(segment.t_events) if te.size), None
+            )
+            if segment.t[-1] <= t and (fired is None or fired < len(own_events)):
+                raise RuntimeError(f"Floor-contact integration made no time progress at t={t}.")
 
             # The segment's first point replaces the previous last one, so the
             # velocity reset on landing shows up without duplicated times.
@@ -92,10 +105,6 @@ class FloorConstraint:
             states.append(segment.y)
 
             t, state = segment.t[-1], segment.y[:, -1]
-            fired = next(
-                (i for i, te in enumerate(segment.t_events) if te.size), None
-            )
-
             if fired is None:
                 break
             if fired >= len(own_events):

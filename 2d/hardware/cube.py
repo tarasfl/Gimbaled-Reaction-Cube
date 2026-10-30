@@ -1,8 +1,8 @@
 import numpy as np
 
 class Cube:
-    def __init__(self, size, flywheel, brushless_motor, servo_motor, gimbal,
-                 cage_mass=0.3):
+    def __init__(self, size: float, flywheel, brushless_motor, servo_motor, gimbal,
+                 cage_mass: float = 0.3):
         # Require motor/wheel data explicitly rather than silently invent hardware.
         self.size = size
 

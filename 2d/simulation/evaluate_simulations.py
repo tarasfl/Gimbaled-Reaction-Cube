@@ -53,3 +53,18 @@ def evaluate_run(result):
             t[flip_index] - t[flip_index - 1]
         )
     )
+
+
+def select_best(successful, tolerance=1.05):
+    fastest_time = min(r.flip_time_s for r in successful)
+    candidates = [
+        r for r in successful
+        if r.flip_time_s <= tolerance * fastest_time
+    ]
+    return min(
+        candidates,
+        key=lambda r: (
+            r.gimbal_travel_deg,
+            r.final_angular_velocity_deg_s,
+        ),
+    )
