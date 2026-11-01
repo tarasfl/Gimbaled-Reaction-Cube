@@ -1,5 +1,7 @@
 import numpy as np
 from types import SimpleNamespace
+from itertools import product
+from simulation.simulation_runner import SimulationRunner
 
 
 def evaluate_run(result):
@@ -55,16 +57,39 @@ def evaluate_run(result):
     )
 
 
-def select_best(successful, tolerance=1.05):
-    fastest_time = min(r.flip_time_s for r in successful)
-    candidates = [
-        r for r in successful
-        if r.flip_time_s <= tolerance * fastest_time
-    ]
-    return min(
-        candidates,
-        key=lambda r: (
-            r.gimbal_travel_deg,
-            r.final_angular_velocity_deg_s,
-        ),
-    )
+def select_best(successful, key=None):
+    if key is None:
+        key = lambda run: run.flip_time_s
+    return min(successful, key=key)
+
+
+def sweep(cube, rpms, initial_degs, target_degs, t_end=10.0):
+    successful = []
+    for target_rpm in rpms:
+        print("-------------------------------")
+        print(f"Running simulations for target_rpm={target_rpm}")
+        for initial_deg, target_deg in product(initial_degs, target_degs):
+            x0 = [0.0, 0.0, np.deg2rad(initial_deg), 0.0]
+
+            print(f"Running simulation for initial_gamma_deg={initial_deg}, target_gamma_deg={target_deg}")
+
+            result = SimulationRunner(cube).run(
+                x0,
+                desired_gamma_deg=target_deg,
+                t_end=t_end,
+                target_rpm=target_rpm,
+            )
+
+            metrics = evaluate_run(result)
+            if metrics is None:
+                continue
+
+            successful.append(SimpleNamespace(
+                initial_gamma_deg=initial_deg,
+                target_gamma_deg=target_deg,
+                target_rpm=target_rpm,
+                flywheel_rpm=float(result.rpm[-1]),
+                **vars(metrics),
+                result=result,  # Keep the trajectory for plotting.
+            ))
+    return successful

@@ -2,7 +2,7 @@ import numpy as np
 
 
 class GimbalControl:
-    """Saturated PD gimbal-angle controller with model-based coupling compensation."""
+    # Saturated PD gimbal-angle controller with model-based coupling compensation
 
     def __init__(self, cube, t_eval, work_rpm, initial_angle, desired_angle_deg, ready_rpm, control_start=None):
         self.cube = cube
@@ -34,7 +34,7 @@ class GimbalControl:
             self.speed_limit / move_distance,
         )
         self.gimbal_inertia = B
-        self.step_limit = 0.001
+        self.step_limit = 0.005
 
     def command(self, t, x, rpm):
         if t < self.control_start:

@@ -3,12 +3,12 @@ from hardware.brushless_motor import BrushlessMotor
 
 class Flywheel:
 
-    def __init__(self, outer_radii:float=0.065, inner_radii:float=0.045, thikness:float=0.01, density:float=2700):
+    def __init__(self, outer_radii:float=0.065, inner_radii:float=0.045, thickness:float=0.01, density:float=2700):
 
         # Dimensions of the flywheel Geometry
         self.outer_radii = outer_radii
         self.inner_radii = inner_radii
-        self.thickness = thikness
+        self.thickness = thickness
 
         # Material properties of the flywheel Mass
         self.density = density
@@ -35,7 +35,7 @@ class Flywheel:
         self.transverse_inertia = self.calculate_transverse_inertia()
         return self.mass
     
-    def recalculate_thikness(self, target_inertia):
+    def recalculate_thickness(self, target_inertia):
         self.thickness = 2 * target_inertia / (np.pi * self.density * (self.outer_radii**4 - self.inner_radii**4))
         self.volume = np.pi * self.thickness * (self.outer_radii**2 - self.inner_radii**2)
         self.update_flywheel_mass()

@@ -24,12 +24,14 @@ class SimulationRunner:
 
         work_rpm = flywheel_control.rpm_at(t_grid)
 
+        t_ready = flywheel_control.ready_time
+
         control = GimbalControl(
             self.cube, t_grid, work_rpm,
             initial_angle=x0[2],
             desired_angle_deg=desired_gamma_deg,
             ready_rpm=5000,
-            control_start=flywheel_control.ready_time
+            control_start=t_ready
         )
 
         rpm_at = flywheel_control.rpm_at
@@ -48,7 +50,7 @@ class SimulationRunner:
         # stop_events order: index 0 -> overspeed, index 1 -> flip_limit.
         FLIP = 1
         solution = FloorConstraint(rhs).run(
-            (t_start, t_end),
+            (t_ready, t_end),
             x0,
             stop_events=[control.overspeed, control.flip_limit],
             max_step=control.step_limit,
