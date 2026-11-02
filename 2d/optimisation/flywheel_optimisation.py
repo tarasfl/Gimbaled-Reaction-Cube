@@ -46,11 +46,18 @@ def save_optimisation_csv(results, cube, specs="flywheel_optimisation"):
 
 
 def optimise_flywheel(cube, weights=(1.0, 1.0, 1.0), steps=3, initial_degs=i_d, target_degs=t_d, outer_radius_values=ro_values, inner_radius_values=ri_values, thickness_values=thickness_values, csv_specs="flywheel_optimisation"):
+    # Every value tried so far per parameter; refinement picks neighbours from these.
+    tried = [set(outer_radius_values), set(inner_radius_values), set(thickness_values)]
+    evaluated = set()
     candidates = compose_candidates(outer_radius_values, inner_radius_values, thickness_values)
     sweep_results = []
     for _ in range(steps):
         print("_____________________STEP{}______________________".format(_ + 1))
         for i in candidates:
+            key = (i.outer_radius, i.inner_radius, i.thickness)
+            if key in evaluated:
+                continue
+            evaluated.add(key)
             print("Evaluating candidate:", i)
             flywheel = Flywheel(outer_radii=i.outer_radius, inner_radii=i.inner_radius, thickness=i.thickness)
             cube = Cube(size=cube.size, cage_mass=cube.cage_mass, flywheel=flywheel, brushless_motor=cube.brushless_motor, servo_motor=cube.servo_motor, gimbal=cube.gimbal)
@@ -69,9 +76,13 @@ def optimise_flywheel(cube, weights=(1.0, 1.0, 1.0), steps=3, initial_degs=i_d, 
             
             sweep_results.extend(runs)
         best = select_best_weighted(sweep_results, weights=weights)
-        outer_radius_values = refined_values(outer_radius_values, best.outer_radius)
-        inner_radius_values = refined_values(inner_radius_values, best.inner_radius)
-        thickness_values = refined_values(thickness_values, best.thickness)
+        # The best run decides where the next step zooms in.
+        outer_radius_values = refined_values(sorted(tried[0]), best.outer_radius)
+        inner_radius_values = refined_values(sorted(tried[1]), best.inner_radius)
+        thickness_values = refined_values(sorted(tried[2]), best.thickness)
+        tried[0].update(outer_radius_values)
+        tried[1].update(inner_radius_values)
+        tried[2].update(thickness_values)
         candidates = compose_candidates(
             outer_radius_values,
             inner_radius_values,
@@ -119,11 +130,10 @@ def select_best_weighted(runs, weights=(1.0, 1.0, 1.0)):
 
 
 def refined_values(values, best_value):
-    # Assumes values are sorted and contain no duplicates.
-    index = values.index(best_value)
-
-    lower = values[max(0, index - 1)]
-    upper = values[min(len(values) - 1, index + 1)]
+    # best_value may come from an earlier step and be absent from `values`,
+    # so neighbours are found by value rather than by list position.
+    lower = max((v for v in values if v < best_value), default=best_value)
+    upper = min((v for v in values if v > best_value), default=best_value)
 
     return sorted({round((lower + best_value) / 2, 9), best_value, round((best_value + upper) / 2, 9),})
 
