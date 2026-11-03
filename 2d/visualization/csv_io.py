@@ -1,10 +1,14 @@
 import csv
 from datetime import datetime
+from pathlib import Path
 from types import SimpleNamespace
+
+STATIC_DIR = Path(__file__).resolve().parents[2] / "static"
+
 
 def save_csv(results, specs=None, metadata=None):
     timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-    path = f"{specs}_{timestamp}.csv" if specs else f"sweep_results_{timestamp}.csv"
+    filename = f"{specs}_{timestamp}.csv" if specs else f"sweep_results_{timestamp}.csv"
     metadata = metadata or SimpleNamespace()
     rows = [
         SimpleNamespace(
@@ -16,6 +20,8 @@ def save_csv(results, specs=None, metadata=None):
     if not rows:
         print("Nothing to save.")
         return
+    STATIC_DIR.mkdir(parents=True, exist_ok=True)
+    path = STATIC_DIR / filename
     with open(path, "w", newline="") as f:
         writer = csv.writer(f)
         writer.writerow(vars(rows[0]))
@@ -24,7 +30,13 @@ def save_csv(results, specs=None, metadata=None):
 
 
 def load_csv(path="sweep_results.csv"):
-    with open(path, newline="") as f:
+    csv_path = Path(path)
+    if not csv_path.is_absolute():
+        if csv_path.parts and csv_path.parts[0] == "static":
+            csv_path = Path(__file__).resolve().parents[2] / csv_path
+        else:
+            csv_path = STATIC_DIR / csv_path
+    with open(csv_path, newline="") as f:
         return [
             SimpleNamespace(**{k: _parse(v) for k, v in row.items()})
             for row in csv.DictReader(f)

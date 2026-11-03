@@ -47,12 +47,10 @@ class SimulationRunner:
                 dx[3] = 0.0
             return dx
 
-        # stop_events order: index 0 -> overspeed, index 1 -> flip_limit.
-        FLIP = 1
         solution = FloorConstraint(rhs).run(
             (t_ready, t_end),
             x0,
-            stop_events=[control.overspeed, control.flip_limit],
+            stop_events=[control.overspeed],
             max_step=control.step_limit,
             **solver_options,
         )
@@ -71,5 +69,7 @@ class SimulationRunner:
             gimbal_torque=torque,
             stopped_by=solution.stopped_by,
             controller=control,
-            flipped=solution.stopped_by == FLIP,
+            landing_time_s=solution.landing_time_s,
+            landing_velocity_rad_s=solution.landing_velocity_rad_s,
+
         )

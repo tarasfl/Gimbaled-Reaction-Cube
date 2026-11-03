@@ -61,6 +61,9 @@ class FloorConstraint:
 
         stopped_by is the index into stop_events that ended the run, or None.
         """
+
+        landing_time_s = None
+        landing_velocity_rad_s = None
         t, t_end = t_span
         state = np.array(x0, dtype=float)
         wall = next((w for w in self.walls if self._depth(w, state) <= 0), None)
@@ -105,12 +108,19 @@ class FloorConstraint:
             states.append(segment.y)
 
             t, state = segment.t[-1], segment.y[:, -1]
+            
             if fired is None:
                 break
             if fired >= len(own_events):
                 stopped_by = fired - len(own_events)
             elif wall is None:
+                # Capture the first upper-face impact.
+                if fired == 1 and landing_time_s is None:
+                    landing_time_s = float(segment.t_events[fired][0])
+                    landing_velocity_rad_s = float(segment.y_events[fired][0][1])
+
                 wall = self.walls[fired]
+                break
             else:
                 wall = None
 
@@ -118,4 +128,6 @@ class FloorConstraint:
             t=np.concatenate(times),
             y=np.concatenate(states, axis=1),
             stopped_by=stopped_by,
+            landing_time_s=landing_time_s,
+            landing_velocity_rad_s=landing_velocity_rad_s,
         )

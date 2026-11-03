@@ -9,20 +9,29 @@ def evaluate_run(result):
     theta, theta_dot, gamma, gamma_dot = result.y
     start = result.controller.control_start
 
-    # Reject runs stopped by the existing overspeed event.
+    # Reject a run stopped by the gimbal-speed event.
     if result.stopped_by == 0:
-        return None
+        return None, 'stopped_by_overspeed'
+
+    # Require an upper-face contact after control starts.
+    if result.landing_time_s is None or result.landing_time_s <= start:
+        return None, 'no_upper_face_contact'
+
+    # Also reject contact at the speed limit, including simultaneous events.
+    speed_limit = result.controller.speed_limit
+    if np.max(np.abs(gamma_dot)) >= speed_limit - 1e-9:
+        return None, 'contact_at_speed_limit'
 
     # Small numerical tolerance around the 90-degree target.
     hits = np.flatnonzero(
         (t >= start) & (theta >= np.pi / 2 - 1e-8)
     )
     if hits.size == 0:
-        return None
+        return None, 'no_hits'
 
     flip_index = int(hits[0])
     if flip_index == 0 or t[flip_index] <= start:
-        return None
+        return None, 'flip_index_invalid'
 
     # Include the exact control-start time by interpolation.
     times = np.concatenate(([start], t[(t > start) & (t <= t[flip_index])]))
@@ -32,9 +41,8 @@ def evaluate_run(result):
 
     positive_power = np.maximum(torque * rates, 0.0)
 
-
     return SimpleNamespace(
-        flip_time_s=float(t[flip_index] - start),
+        flip_time_s=float(result.landing_time_s - start),
         gimbal_travel_deg=float(
             np.rad2deg(np.sum(np.abs(np.diff(angles))))
         ),
@@ -48,19 +56,8 @@ def evaluate_run(result):
         peak_gimbal_speed_deg_s=float(
             np.rad2deg(np.max(np.abs(rates)))
         ),
-        final_angular_velocity_deg_s=float(
-            np.rad2deg(abs(theta_dot[flip_index - 1]))
-        ),
-        landing_sample_gap_s=float(
-            t[flip_index] - t[flip_index - 1]
-        )
-    )
-
-
-def select_best(successful, key=None):
-    if key is None:
-        key = lambda run: run.flip_time_s
-    return min(successful, key=key)
+        final_angular_velocity_deg_s=float(np.rad2deg(abs(result.landing_velocity_rad_s))),
+    ), None
 
 
 def sweep(cube, rpms, initial_degs, target_degs, t_end=10.0):
@@ -80,7 +77,7 @@ def sweep(cube, rpms, initial_degs, target_degs, t_end=10.0):
                 target_rpm=target_rpm,
             )
 
-            metrics = evaluate_run(result)
+            metrics, reason = evaluate_run(result)
             if metrics is None:
                 continue
 

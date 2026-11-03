@@ -26,6 +26,7 @@ def _characteristics_text(cube):
         "Flywheel",
         f"  Mass: {flywheel.mass * 1000:.1f} g",
         f"  Radii (outer/inner): {flywheel.outer_radii * 1000:.1f} / {flywheel.inner_radii * 1000:.1f} mm",
+        f"  Thickness: {flywheel.thickness * 1000:.1f} mm",
         f"  Max RPM: {flywheel.max_rpm:.0f}",
         "",
         "Brushless motor (flywheel drive)",
@@ -157,5 +158,4 @@ def plot_fastest_from_csv(cube, path="sweep_results.csv"):
         t_end=10.0,
     )
     plot_result(result)
-
 

@@ -5,6 +5,11 @@ class Flywheel:
 
     def __init__(self, outer_radii:float=0.065, inner_radii:float=0.045, thickness:float=0.01, density:float=2700):
 
+        if not np.isfinite([outer_radii, inner_radii, thickness, density]).all():
+            raise ValueError("Flywheel parameters must be finite.")
+        if not (0 <= inner_radii < outer_radii and thickness > 0 and density > 0):
+            raise ValueError("Invalid flywheel geometry or density.")
+
         # Dimensions of the flywheel Geometry
         self.outer_radii = outer_radii
         self.inner_radii = inner_radii
