@@ -6,6 +6,8 @@ from itertools import product
 from hardware.servo_motor import ServoMotor
 from optimisation.optimisation import optimise, select_best_weighted
 
+from visualization.csv_io import save_csv
+
 
 def compose_candidates(power_limit_w, rpm_values, torque_values):
     candidates = [
@@ -39,7 +41,7 @@ def make_servo(nominal_torque, max_rpm, reference, power_limit_w):
         max_rpm=max_rpm,
     )
 
-def optimise_servo(cube, power_limit_w=50.0, flywheel_rpm=3000, steps=3,):
+def optimise_servo(cube, flywheel_rpm, initial_degs=[-10, 0], target_degs=[60, 90], power_limit_w=50.0, steps=3, duration=15.0):
     candidates = compose_candidates(power_limit_w, np.geomspace(100, 500, 7), np.geomspace(0.1, 10, 7))
 
     weights = {"torque": 1.0, "max_rpm": 0.75, "flip_time_s": 0.75}
@@ -54,9 +56,11 @@ def optimise_servo(cube, power_limit_w=50.0, flywheel_rpm=3000, steps=3,):
             ),
         weights=weights,
         rpms=[flywheel_rpm],
-        initial_degs=[-10, 0],
-        target_degs=[60, 90],
+        initial_degs=initial_degs,
+        target_degs=target_degs,
         refinement_steps=steps,
+        duration=duration,
     )
+    save_csv(successful_runs, specs="SERVO_FULL_RANGE_TEST")
 
     return select_best_weighted(successful_runs, weights)

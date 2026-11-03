@@ -51,13 +51,11 @@ def save_optimisation_csv(results, cube, specs="flywheel_optimisation"):
     return save_csv(results, specs=specs, metadata=cube_metadata)
 
 
-def optimise_flywheel(cube, weights=None, steps=3, initial_degs=i_d, target_degs=t_d, outer_radius_values=ro_values, inner_radius_values=ri_values, thickness_values=thickness_values, csv_specs="flywheel_optimisation"):
+def optimise_flywheel(cube, duration=10.0, weights=None, steps=3, initial_degs=i_d, target_degs=t_d, outer_radius_values=ro_values, inner_radius_values=ri_values, thickness_values=thickness_values, csv_specs="flywheel_optimisation", rpms=None):
+    if rpms is None:
+        rpms = list(range(1000, 5001, 1000))
     if weights is None:
-        weights = {
-            "component_mass": 1.0,
-            "flip_time_s": 1.0,
-            "target_rpm": 1.0,
-        }
+        weights = {"component_mass": 1.0, "flip_time_s": 1.0, "target_rpm": 1.0}
 
     successful_runs = optimise(
         candidates=compose_candidates(outer_radius_values, inner_radius_values, thickness_values),
@@ -65,9 +63,10 @@ def optimise_flywheel(cube, weights=None, steps=3, initial_degs=i_d, target_degs
         component_attribute="flywheel",
         constructor=Flywheel,
         weights=weights,
-        rpms=range(1000, 5001, 1000),
+        rpms=rpms,
         initial_degs=initial_degs,
         target_degs=target_degs,
+        duration=duration,
         refinement_steps=steps,
     )
     save_optimisation_csv(successful_runs, cube, specs=csv_specs)
