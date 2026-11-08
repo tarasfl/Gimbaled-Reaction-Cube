@@ -1,4 +1,5 @@
 import argparse
+import json
 from pathlib import Path
 
 import numpy as np
@@ -10,6 +11,25 @@ from dynamics.dynamics_2d import Dynamics2D
 from pydrake.geometry import StartMeshcat
 from pydrake.systems.analysis import Simulator
 from pydrake.systems.framework import BasicVector, LeafSystem
+from telemetry import serve_replay, write_replay
+
+
+class GimbalSweepControl:
+    """Give the existing torque-limited controller a gradual angle target."""
+    def __init__(self, controller, initial_angle, move_time):
+        self.controller = controller
+        self.initial_angle = initial_angle
+        self.final_angle = controller.desired_angle
+        self.move_time = move_time
+        self.speed_limit = controller.speed_limit
+
+    def command(self, time, state, rpm):
+        u = np.clip(time / self.move_time, 0.0, 1.0)
+        fraction = 10*u**3 - 15*u**4 + 6*u**5
+        self.controller.desired_angle = (
+            self.initial_angle + fraction*(self.final_angle-self.initial_angle)
+        )
+        return self.controller.command(time, state, rpm)
 
 
 class MotorControl(LeafSystem):
@@ -52,15 +72,19 @@ def settle_on_floor(model, context, spin_mode):
 
 
 def simulate(duration=2.0, rpm=5000.0, spin_mode="hold", meshcat=None,
-             max_step=0.001, samples=301):
-    model = build_model(meshcat=meshcat)
+             max_step=0.001, samples=301, gimbal_target_deg=90.0, gimbal_move_time=1.5,
+             gimbal_initial_deg=0.0, cube=None, include_auxiliary_inertia=False):
+    model = build_model(cube=cube, meshcat=meshcat,
+                        include_auxiliary_inertia=include_auxiliary_inertia)
     cube, plant = model.cube, model.plant
-    # Flat cube, disc in XZ: gimbal rotates about +Z; wheel spins about +Y.
-    # The existing equations use a gimbal zero 90 degrees from this pose.
-    x0 = np.array([0.0, 0.0, -GIMBAL_OFFSET, 0.0])
+    # Public angle arguments use the scene zero (disc in XZ at gamma=0).
+    # The controller/equations use gamma_analytical = gamma_scene - pi/2.
+    x0 = np.array([0.0, 0.0, np.deg2rad(gimbal_initial_deg)-GIMBAL_OFFSET, 0.0])
     control = GimbalControl(cube, np.array([0.0]), np.array([rpm]), x0[2],
-                            desired_angle_deg=10-np.rad2deg(GIMBAL_OFFSET),
+                            desired_angle_deg=gimbal_target_deg-np.rad2deg(GIMBAL_OFFSET),
                             ready_rpm=rpm, control_start=0.0)
+    if gimbal_move_time is not None:
+        control = GimbalSweepControl(control, x0[2], gimbal_move_time)
     controller = model.builder.AddSystem(MotorControl(model, control, spin_mode))
     model.builder.Connect(plant.get_state_output_port(), controller.get_input_port())
     model.builder.Connect(controller.get_output_port(), plant.get_actuation_input_port())
@@ -199,33 +223,79 @@ def save_results(result, output):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--saved-run", action="store_true",
+                        help="Reproduce the selected November 3 run, using its original controller and inertias")
     parser.add_argument("--duration", type=float, default=2.0)
     parser.add_argument("--rpm", type=float, default=5000)
+    parser.add_argument("--gimbal-initial-deg", type=float, default=0)
+    parser.add_argument("--gimbal-target-deg", type=float, default=90)
+    parser.add_argument("--gimbal-move-time", type=float, default=1.5)
     parser.add_argument("--spin-mode", choices=["hold", "coast"], default="hold")
     parser.add_argument("--no-meshcat", action="store_true")
     parser.add_argument("--output", type=Path, default=Path(__file__).parent/"output")
     args = parser.parse_args()
-    if not np.isfinite([args.duration, args.rpm]).all() or args.duration <= 0:
-        parser.error("duration must be positive; duration and RPM must be finite")
+    if (not np.isfinite([args.duration, args.rpm, args.gimbal_initial_deg, args.gimbal_target_deg, args.gimbal_move_time]).all()
+            or args.duration <= 0 or args.gimbal_move_time <= 0):
+        parser.error("values must be finite; duration and gimbal move time must be positive")
+    cube, saved = None, None
+    if args.saved_run:
+        if args.spin_mode != "hold":
+            parser.error("The saved analytical run assumes held flywheel RPM.")
+        from saved_case import load_saved_case
+        cube, saved = load_saved_case()
+        args.rpm = saved["flywheel_rpm"]
+        args.gimbal_initial_deg = saved["initial_gamma_deg"] + np.rad2deg(GIMBAL_OFFSET)
+        args.gimbal_target_deg = saved["target_gamma_deg"] + np.rad2deg(GIMBAL_OFFSET)
+        args.gimbal_move_time = None  # Original PD step command; timing is a result.
+        args.output = args.output / "saved_run"
     meshcat = None if args.no_meshcat else StartMeshcat()
-    result = simulate(args.duration, args.rpm, args.spin_mode, meshcat)
+    result = simulate(args.duration, args.rpm, args.spin_mode, meshcat,
+                      gimbal_target_deg=args.gimbal_target_deg,
+                      gimbal_initial_deg=args.gimbal_initial_deg,
+                      gimbal_move_time=args.gimbal_move_time, cube=cube,
+                      include_auxiliary_inertia=args.saved_run)
+    if saved is not None:
+        result["gimbal_display_offset"] = GIMBAL_OFFSET
     save_results(result, args.output)
     error = np.max(np.abs(result["state"][:, [0, 3, 1, 4]]-result["analytical"]), axis=0)
+    summary = {
+        "stop_reason": result["stop_reason"],
+        "end_time_s": float(result["t"][-1]),
+        "floor_release_s": result["lift_time"],
+        "cube_final_deg": float(np.rad2deg(result["state"][-1, 0])),
+        "gimbal_final_analytical_deg": float(np.rad2deg(result["state"][-1, 1]-GIMBAL_OFFSET)),
+        "peak_gimbal_speed_deg_s": float(np.rad2deg(np.max(np.abs(result["state"][:, 4])))),
+        "peak_gimbal_torque_nm": float(np.max(np.abs(result["torques"][:, 0]))),
+        "total_mass_kg": float(result["model"].cube.total_mass),
+        "flywheel_rpm": args.rpm,
+        "max_state_difference": error.tolist(),
+        "saved_reference": saved,
+    }
+    (args.output/"summary.json").write_text(json.dumps(summary, indent=2)+"\n")
+    print(json.dumps(summary, indent=2))
     print("Max absolute difference [theta, theta_d, gamma, gamma_d]:", error)
     print("Stop:", result["stop_reason"])
     print("Floor release [s, sampled]:", result["lift_time"])
     print("Floor landings [s, sampled]:", result["landing_times"])
+    print("Gimbal angle [deg]:", np.rad2deg(result["state"][-1, 1]))
     print("Peak ideal spin torque [N m]:", np.max(np.abs(result["torques"][:, 1])))
     print("Output:", args.output.resolve())
     if args.spin_mode == "coast":
         print("Coasting conserves spin momentum; differences from fixed-RPM equations are expected.")
     if meshcat is not None:
-        (args.output/"meshcat.html").write_text(meshcat.StaticHtml())
-        print("Meshcat:", meshcat.web_url(), "(or reopen saved meshcat.html)")
+        recording = meshcat.StaticHtml()
+        (args.output/"meshcat.html").write_text(recording)
+        write_replay(recording, result, args.output/"simulation.html")
+        server, replay_url = serve_replay(args.output)
+        print("Simulation with readouts:", replay_url)
+        print("Meshcat scene only:", meshcat.web_url())
         try:
-            input("Press Enter to close the live Meshcat server. ")
-        except EOFError:
+            input("Press Enter to close the viewers. ")
+        except (EOFError, KeyboardInterrupt):
             pass
+        finally:
+            server.shutdown()
+            server.server_close()
 
 
 if __name__ == "__main__":

@@ -1,0 +1,40 @@
+<?xml version="1.0"?>
+<sdf version="1.9">
+  <model name="cube_plate_model">
+    <static>false</static>
+    <link name="cube">
+      <!-- Original 150 mm cube cage physics, NOT a physical thin plate.
+           COM remains at the cube centre. I = (5/18) * 0.5 * 0.15^2. -->
+      <inertial>
+        <mass>0.5</mass>
+        <inertia>
+          <ixx>0.003125</ixx>
+          <iyy>0.003125</iyy>
+          <izz>0.003125</izz>
+          <ixy>0</ixy>
+          <ixz>0</ixz>
+          <iyz>0</iyz>
+        </inertia>
+      </inertial>
+
+      <visual name="plate_visual">
+        <!-- Mesh XY -> body XZ; thickness along body Y. -->
+        <pose>0 0 0 -1.570796326795 0 0</pose>
+        <geometry>
+          <mesh>
+            <uri>meshes/plate.obj</uri>
+          </mesh>
+        </geometry>
+        <material>
+          <diffuse>0.2 0.55 0.85 1</diffuse>
+        </material>
+      </visual>
+    </link>
+
+    <!-- Same reference as the original cube; this frame is not a joint.
+         A later revolute joint will connect it to world about +Y. -->
+    <frame name="floor_edge" attached_to="cube">
+      <pose>0.075 0 -0.075 0 0 0</pose>
+    </frame>
+  </model>
+</sdf>

@@ -9,7 +9,8 @@ import numpy as np
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from hardware.parameters import make_cube
-from pydrake.geometry import Box, MeshcatVisualizer, MeshcatVisualizerParams, Sphere
+from pydrake.common import MemoryFile
+from pydrake.geometry import Box, InMemoryMesh, Mesh, MeshcatVisualizer, MeshcatVisualizerParams, Sphere
 from pydrake.math import RigidTransform, RotationMatrix
 from pydrake.multibody.plant import AddMultibodyPlantSceneGraph
 from pydrake.multibody.tree import (
@@ -75,17 +76,39 @@ def held_speed_torque(plant, context, gimbal_torque, cube_fixed=False):
     return float(mass[2, :2] @ acceleration - rhs[2])
 
 
-def add_ring(plant, body, radius, width, thickness, color, rotation=None):
-    """Segmented annulus for display only; inertia comes from hardware values."""
-    rotation = RotationMatrix() if rotation is None else rotation
-    for k in range(48):
-        angle = 2*np.pi*k/48
-        local_rotation = RotationMatrix.MakeZRotation(angle)
-        center = rotation @ np.array([radius*np.cos(angle), radius*np.sin(angle), 0])
-        plant.RegisterVisualGeometry(
-            body, RigidTransform(rotation @ local_rotation, center),
-            Box(width, 2*radius*np.sin(np.pi/48), thickness), f"ring_{k}", color,
-        )
+def annular_mesh(outer_radius, inner_radius, thickness, segments=256):
+    """A circle minus a smaller circle, extruded along Z; visual geometry only.
+
+    Four connected surfaces form the front, back, outer wall and inner wall.
+    Radial normals make the cylindrical walls look smooth; the hole stays open.
+    """
+    vertices, normals, faces = [], [], []
+    half = thickness / 2
+    surfaces = [
+        (inner_radius, half, outer_radius, half, "front"),
+        (outer_radius, -half, inner_radius, -half, "back"),
+        (outer_radius, half, outer_radius, -half, "outer"),
+        (inner_radius, -half, inner_radius, half, "inner"),
+    ]
+    for r0, z0, r1, z1, surface in surfaces:
+        start = len(vertices)
+        for k in range(segments):
+            angle = 2*np.pi*k/segments
+            c, s = np.cos(angle), np.sin(angle)
+            normal = {"front": (0, 0, 1), "back": (0, 0, -1),
+                      "outer": (c, s, 0), "inner": (-c, -s, 0)}[surface]
+            vertices.extend([(r0*c, r0*s, z0), (r1*c, r1*s, z1)])
+            normals.extend([normal, normal])
+        for k in range(segments):
+            a = start + 2*k + 1  # OBJ indices begin at 1.
+            b = start + 2*((k+1) % segments) + 1
+            faces.extend([(a, a+1, b+1), (a, b+1, b)])
+    lines = ["v " + " ".join(map(str, v)) for v in vertices]
+    lines += ["vn " + " ".join(map(str, n)) for n in normals]
+    lines += ["f " + " ".join(f"{i}//{i}" for i in face) for face in faces]
+    return Mesh(InMemoryMesh(mesh_file=MemoryFile(
+        "\n".join(lines), ".obj", "flywheel_annulus.obj"
+    )))
 
 
 def cage_and_flywheel(cube=None):
@@ -108,8 +131,12 @@ def cage_and_flywheel(cube=None):
     return cube
 
 
-def build_model(cube=None, meshcat=None, gravity=9.81):
-    cube = cage_and_flywheel(cube)
+def build_model(cube=None, meshcat=None, gravity=9.81, include_auxiliary_inertia=False):
+    # The saved-run mode retains auxiliary physics without drawing those parts.
+    if include_auxiliary_inertia:
+        cube = deepcopy(cube) if cube is not None else make_cube()
+    else:
+        cube = cage_and_flywheel(cube)
     builder = DiagramBuilder()
     plant, scene_graph = AddMultibodyPlantSceneGraph(builder, time_step=0.0)
     plant.mutable_gravity_field().set_gravity_vector([0, 0, -gravity])
@@ -125,13 +152,31 @@ def build_model(cube=None, meshcat=None, gravity=9.81):
         "theta", plant.world_frame(), edge, [0, 1, 0]
     ))
 
-    # Two independent wheel rotations need an intermediate frame/body in the
-    # joint chain. This carrier has exactly zero mass/inertia and no geometry.
-    gimbal_body = plant.AddRigidBody("tilt_carrier", SpatialInertia.Zero())
+    # Reproduce the lumped inertias used by the existing planar equations.
+    # These are equivalent inertia tensors, not a detailed motor/ring CAD model.
+    carrier_inertia = SpatialInertia.Zero()
+    if include_auxiliary_inertia:
+        servo = cube.servo_motor
+        servo_body = plant.AddRigidBody("servo_mass", inertia(
+            servo.mass, [servo.calculate_inertia()]*3
+        ))
+        x, z = cube.servo_position
+        plant.WeldFrames(cage.body_frame(), servo_body.body_frame(),
+                         RigidTransform([x, 0, z]))
+        gimbal, motor = cube.gimbal, cube.brushless_motor
+        transverse = gimbal.calculate_transverse_inertia() + motor.calculate_transverse_inertia()
+        axial = gimbal.calculate_inertia() + motor.calculate_inertia()
+        tilt = (gimbal.calculate_inertia() + motor.calculate_transverse_inertia()
+                + motor.mass * motor.offset**2)
+        carrier_inertia = inertia(gimbal.mass + motor.mass, [transverse, axial, tilt])
+    # Two wheel rotations require an intermediate body, invisible in the scene.
+    gimbal_body = plant.AddRigidBody("tilt_carrier", carrier_inertia)
     gamma = plant.AddJoint(RevoluteJoint(
         "gamma", cage.body_frame(), gimbal_body.body_frame(), [0, 0, 1]
     ))
-    plant.AddJointActuator("gimbal_motor", gamma, cube.servo_motor.torque)
+    gimbal_actuator = plant.AddJointActuator("gimbal_motor", gamma, cube.servo_motor.torque)
+    if include_auxiliary_inertia:
+        gimbal_actuator.set_default_rotor_inertia(cube.servo_motor.rotor_inertia)
 
     wheel = cube.flywheel
     # Disc lies in local XZ, so its axial inertia and spin axis are along Y.
@@ -145,9 +190,11 @@ def build_model(cube=None, meshcat=None, gravity=9.81):
 
     plant.RegisterVisualGeometry(cage, RigidTransform(), Box(size, size, size),
                                  "shell", [0.2, 0.55, 0.85, 0.18])
-    add_ring(plant, flywheel_body, (wheel.outer_radii+wheel.inner_radii)/2,
-             wheel.outer_radii-wheel.inner_radii, wheel.thickness, [0.8, 0.55, 0.12, 1],
-             RotationMatrix.MakeXRotation(-np.pi/2))
+    plant.RegisterVisualGeometry(
+        flywheel_body, RigidTransform(RotationMatrix.MakeXRotation(-np.pi/2)),
+        annular_mesh(wheel.outer_radii, wheel.inner_radii, wheel.thickness),
+        "annulus", [0.8, 0.55, 0.12, 1],
+    )
     # Put the marker on the visible face, rather than buried inside the rim.
     plant.RegisterVisualGeometry(flywheel_body,
                                  RigidTransform([wheel.outer_radii-0.006, -wheel.thickness/2-0.001, 0]),
