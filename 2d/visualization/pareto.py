@@ -57,3 +57,5 @@ def plot_pareto_from_csv(path, show=True):
     fig.tight_layout()
     if show:
         plt.show()
+
+

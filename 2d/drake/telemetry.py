@@ -1,6 +1,6 @@
 """Add numerical readouts to a self-contained Meshcat recording."""
 from functools import partial
-from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
+from http.server import BaseHTTPRequestHandler, SimpleHTTPRequestHandler, ThreadingHTTPServer
 import json
 from threading import Thread
 
@@ -19,21 +19,83 @@ def write_replay(meshcat_html, result, output):
         np.rad2deg(state[:, 4]), np.rad2deg(state[:, 3]),
         result["torques"][:, 0], result["torques"][:, 1], cmg,
     ])
-    if not np.isfinite(rows).all() or np.any(np.diff(rows[:, 0]) <= 0):
-        raise ValueError("Telemetry must be finite and ordered by time.")
-    payload = json.dumps(rows.tolist(), separators=(",", ":"), allow_nan=False)
     angle_note = ("Gimbal angles use the original analytical zero (scene angle minus 90°)."
                   if result.get("gimbal_display_offset", 0.0) else "Gimbal zero: flywheel disc in XZ.")
-    panel = PANEL.replace("__TELEMETRY_ROWS__", payload).replace("__ANGLE_NOTE__", angle_note)
+    fields = [
+        ["Time", "s", 3], ["Flywheel", "RPM", 1],
+        ["Gimbal angle", "°", 2], ["Cube angle", "°", 2],
+        ["Gimbal speed", "°/s", 2], ["Cube speed", "°/s", 2],
+        ["Gimbal torque", "N·m", 6], ["Spin motor torque", "N·m", 6],
+        ["CMG contribution", "N·m", 5],
+    ]
+    output.write_text(_render_panel(meshcat_html, rows, fields, "Cube &amp; flywheel",
+                 "Recorded simulation · fixed edge", angle_note,
+                 "CMG is the gyroscopic contribution about the cube edge, not the net torque."))
+
+
+def scene_replay_html(meshcat_html, times, angles, rates, gimbal_angles, gimbal_rates,
+                      torques, target, speed_limit, cube_angles, contact_forces):
+    """Controller readouts on the same clock as the in-memory scene replay."""
+    peak_speed = np.maximum.accumulate(np.abs(gimbal_rates))
+    rows = np.column_stack([
+        times, np.rad2deg(angles), rates * 60 / (2 * np.pi),
+        np.rad2deg(gimbal_angles) - 90, np.rad2deg(gimbal_rates),
+        np.full(len(times), np.rad2deg(target)), torques,
+        peak_speed * 60 / (2 * np.pi),
+        np.full(len(times), speed_limit * 60 / (2 * np.pi)),
+        (peak_speed > speed_limit).astype(float),
+        np.rad2deg(cube_angles), contact_forces,
+    ])
+    fields = [
+        ["Elapsed time", "s", 3], ["Flywheel angle", "°", 2], ["Flywheel speed", "RPM", 2],
+        ["Gimbal angle", "°", 2], ["Gimbal speed", "°/s", 2], ["Gimbal target", "°", 2],
+        ["Applied torque", "N·m", 4], ["Peak gimbal speed", "RPM", 2],
+        ["Speed limit", "RPM", 2], ["Limit exceeded (0=no, 1=yes)", "", 0],
+        ["Cube angle", "°", 2], ["Floor normal force", "N", 2],
+    ]
+    return _render_panel(meshcat_html, rows, fields, "Plate &amp; flywheel",
+                 "Recorded simulation · planar floor contact", "Gimbal angles use the analytical zero (scene minus 90°).",
+                 "Speed is monitored, not clamped. Peak speed is sampled every 1 ms.")
+
+
+def _render_panel(meshcat_html, rows, fields, title, subtitle, angle_note, note):
+    if len(rows) == 0 or not np.isfinite(rows).all() or np.any(np.diff(rows[:, 0]) <= 0):
+        raise ValueError("Telemetry must be finite, nonempty and ordered by time.")
+    payload = json.dumps(rows.tolist(), separators=(",", ":"), allow_nan=False)
+    panel = (PANEL.replace("__TELEMETRY_ROWS__", payload)
+             .replace("__FIELDS__", json.dumps(fields))
+             .replace("__TITLE__", title).replace("__SUBTITLE__", subtitle)
+             .replace("__ANGLE_NOTE__", angle_note).replace("__NOTE__", note))
     if "</body>" not in meshcat_html:
         raise ValueError("Expected a Meshcat HTML export.")
-    output.write_text(meshcat_html.replace("</body>", panel + "\n</body>"))
+    return meshcat_html.replace("</body>", panel + "\n</body>")
 
 
 def serve_replay(directory):
     """Serve only the generated output folder, on this computer."""
     handler = partial(SimpleHTTPRequestHandler, directory=str(directory.resolve()))
     server = ThreadingHTTPServer(("127.0.0.1", 0), handler)
+    Thread(target=server.serve_forever, daemon=True).start()
+    return server, f"http://127.0.0.1:{server.server_port}/simulation.html"
+
+
+def serve_scene_replay(html):
+    """Serve the scene recording from memory without writing any files."""
+    content = html.encode("utf-8")
+
+    class Handler(BaseHTTPRequestHandler):
+        def do_GET(self):
+            if self.path not in ("/", "/simulation.html"):
+                self.send_error(404)
+                return
+            self.send_response(200)
+            self.send_header("Content-Type", "text/html; charset=utf-8")
+            self.send_header("Content-Length", str(len(content)))
+            self.send_header("Cache-Control", "no-store")
+            self.end_headers()
+            self.wfile.write(content)
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
     Thread(target=server.serve_forever, daemon=True).start()
     return server, f"http://127.0.0.1:{server.server_port}/simulation.html"
 
@@ -57,11 +119,11 @@ PANEL = r'''
 @media(max-width:650px) {#telemetry {top:8px; left:8px; width:235px; padding:12px; font-size:12px;}}
 </style>
 <aside id="telemetry" aria-label="Simulation readouts">
-  <h1>Cube &amp; flywheel</h1>
-  <div class="muted">Recorded simulation · fixed edge</div>
+  <h1>__TITLE__</h1>
+  <div class="muted">__SUBTITLE__</div>
   <div class="muted">__ANGLE_NOTE__</div>
   <dl id="readings"></dl>
-  <div class="muted">CMG is the gyroscopic contribution about the cube edge, not the net torque.</div>
+  <div class="muted">__NOTE__</div>
   <div class="buttons"><button id="replay-toggle">Pause</button><button id="replay-restart">Restart</button></div>
   <label for="replay-time" class="muted">Playback time</label>
   <input id="replay-time" type="range" min="0" step="0.001" value="0">
@@ -70,13 +132,7 @@ PANEL = r'''
 <script>
 (() => {
   const rows = __TELEMETRY_ROWS__;
-  const fields = [
-    ["Time", "s", 3], ["Flywheel", "RPM", 1],
-    ["Gimbal angle", "°", 2], ["Cube angle", "°", 2],
-    ["Gimbal speed", "°/s", 2], ["Cube speed", "°/s", 2],
-    ["Gimbal torque", "N·m", 6], ["Spin motor torque", "N·m", 6],
-    ["CMG contribution", "N·m", 5]
-  ];
+  const fields = __FIELDS__;
   const readings = document.getElementById("readings");
   const displays = fields.map(([label]) => {
     const row = document.createElement("div"); row.className = "reading";
