@@ -13,7 +13,12 @@ class SimulationRunner:
         self.cube = cube
         self.dynamics = Dynamics2D(cube)
 
-    def run(self, x0, desired_gamma_deg, target_rpm:float,t_end=10.0, t_start=0.0, samples=10001, **solver_options):
+    def run(self, x0, desired_gamma_deg, target_rpm:float,t_end=10.0, t_start=0.0, samples=10001, controller=None, **solver_options):
+        """Simulate a flip; `controller` is any object with command(t, state, flywheel_rpm) -> gimbal torque.
+
+        Defaults to GimbalControl. A controller may expose `control_start` (the lock is released then)
+        and `step_limit` (max solver step).
+        """
         
         solver_options = {"method": "RK45", "rtol": 1e-7, "atol": 1e-9, **solver_options}
 
@@ -26,13 +31,26 @@ class SimulationRunner:
 
         t_ready = flywheel_control.ready_time
 
-        control = GimbalControl(
-            self.cube, t_grid, work_rpm,
-            initial_angle=x0[2],
-            desired_angle_deg=desired_gamma_deg,
-            ready_rpm=5000,
-            control_start=t_ready
-        )
+        control = controller
+        if control is None:
+            control = GimbalControl(
+                self.cube, t_grid, work_rpm,
+                initial_angle=x0[2],
+                desired_angle_deg=desired_gamma_deg,
+                ready_rpm=5000,
+                control_start=t_ready
+            )
+
+        control_start = getattr(control, "control_start", t_ready)
+        step_limit = getattr(control, "step_limit", 0.005)
+        speed_limit = self.cube.servo_motor.max_rpm * 2 * np.pi / 60
+
+        # The gimbal speed limit is physical, so it applies to every controller.
+        def overspeed(t, x):
+            return speed_limit - abs(x[3])
+
+        overspeed.terminal = True
+        overspeed.direction = -1
 
         rpm_at = flywheel_control.rpm_at
 
@@ -41,7 +59,7 @@ class SimulationRunner:
             dx = self.dynamics.derivatives(
                 t, x, rpm, gimbal_torque=control.command(t, x, rpm)
             )
-            if t < control.control_start:
+            if t < control_start:
                 # Ideal mechanical lock during spin-up.
                 dx[2] = 0.0
                 dx[3] = 0.0
@@ -50,8 +68,8 @@ class SimulationRunner:
         solution = FloorConstraint(rhs).run(
             (t_ready, t_end),
             x0,
-            stop_events=[control.overspeed],
-            max_step=control.step_limit,
+            stop_events=[overspeed],
+            max_step=step_limit,
             **solver_options,
         )
 

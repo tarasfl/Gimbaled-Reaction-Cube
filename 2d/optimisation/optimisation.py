@@ -1,6 +1,5 @@
 from copy import deepcopy
 from itertools import product
-from math import isfinite
 from numbers import Real
 from hardware.cube import Cube
 

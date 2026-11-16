@@ -7,6 +7,7 @@ from pydrake.all import Simulator, StartMeshcat
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from scene_case import load_scene_case, make_scene_cube
+from scene_results import plot_scene_result, save_scene_result
 from scene_system import build_scene_system
 from telemetry import scene_replay_html, serve_scene_replay
 
@@ -36,7 +37,7 @@ def simulate_scene(
     meshcat.StartRecording(frames_per_second=60)
     times = np.linspace(0, duration, int(np.ceil(duration * 1000)) + 1)
     angles, rates, gimbal_angles, gimbal_rates, torques = [], [], [], [], []
-    cube_angles, contact_forces = [], []
+    cube_angles, cube_rates, contact_forces = [], [], []
     for time in times:
         simulator.AdvanceTo(float(time))
         diagram.ForcedPublish(context)
@@ -46,6 +47,7 @@ def simulate_scene(
         gimbal_rates.append(gimbal_joint.get_angular_rate(plant_context))
         torques.append(plant.get_net_actuation_output_port().Eval(plant_context)[0])
         cube_angles.append(cube_joint.get_angle(plant_context))
+        cube_rates.append(cube_joint.get_angular_rate(plant_context))
         contacts = plant.get_contact_results_output_port().Eval(plant_context)
         contact_forces.append(sum(
             abs(contacts.hydroelastic_contact_info(i).F_Ac_W().translational()[2])
@@ -58,7 +60,8 @@ def simulate_scene(
         gimbal_angles=np.asarray(gimbal_angles), gimbal_rates=np.asarray(gimbal_rates),
         torques=np.asarray(torques), target=controller.desired_angle,
         speed_limit=controller.speed_limit,
-        cube_angles=np.asarray(cube_angles), contact_forces=np.asarray(contact_forces),
+        cube_angles=np.asarray(cube_angles), cube_rates=np.asarray(cube_rates),
+        contact_forces=np.asarray(contact_forces),
     )
 
 
@@ -78,8 +81,22 @@ def main():
         gimbal_rate_deg_s, pivoted=cube_frame_pivoted,
     )
     
-    replay = scene_replay_html(meshcat.StaticHtml(), **result)
+    replay = scene_replay_html(
+        meshcat.StaticHtml(),
+        times=result["times"],
+        angles=result["angles"],
+        rates=result["rates"],
+        gimbal_angles=result["gimbal_angles"],
+        gimbal_rates=result["gimbal_rates"],
+        torques=result["torques"],
+        target=result["target"],
+        speed_limit=result["speed_limit"],
+        cube_angles=result["cube_angles"],
+        contact_forces=result["contact_forces"],
+    )
     server, replay_url = serve_scene_replay(replay)
+
+    plot_scene_result(result, cube)
     print("Open this replay with telemetry and time slider:", replay_url)
     print("Meshcat scene only:", meshcat.web_url())
     try:
