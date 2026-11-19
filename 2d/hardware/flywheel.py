@@ -1,5 +1,4 @@
 import numpy as np
-from hardware.brushless_motor import BrushlessMotor
 
 class Flywheel:
 

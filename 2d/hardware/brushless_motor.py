@@ -1,5 +1,3 @@
-import numpy as np
-
 class BrushlessMotor:
     def __init__(self, rotor_inertia, nominal_rpm, nominal_torque, mass=0, radius=0, length=0, offset=0.01):
         self.mass = mass
@@ -29,8 +27,3 @@ class BrushlessMotor:
 
     def calculate_inertia(self):
         return 0.5 * self.mass * self.radius**2
-
-    def calculate_rpm(self, flywheel):
-        inertia = flywheel.inertia + self.rotor_inertia
-        target_omega = self.nominal_torque / inertia
-        return target_omega * 60 / (2 * np.pi)

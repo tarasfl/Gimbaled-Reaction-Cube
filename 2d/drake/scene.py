@@ -7,7 +7,7 @@ from pydrake.all import Simulator, StartMeshcat
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from scene_case import load_scene_case, make_scene_cube
-from scene_results import plot_scene_result, save_scene_result
+from scene_results import plot_scene_result
 from scene_system import build_scene_system
 from telemetry import scene_replay_html, serve_scene_replay
 

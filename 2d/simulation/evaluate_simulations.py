@@ -1,6 +1,8 @@
-import numpy as np
-from types import SimpleNamespace
 from itertools import product
+from types import SimpleNamespace
+
+import numpy as np
+
 from simulation.simulation_runner import SimulationRunner
 
 

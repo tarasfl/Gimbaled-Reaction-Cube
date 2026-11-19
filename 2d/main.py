@@ -1,12 +1,7 @@
-from hardware.brushless_motor import BrushlessMotor
-from hardware.servo_motor import ServoMotor
 from hardware.flywheel import Flywheel
-from hardware.gimbal import Gimbal
-from hardware.cube import Cube
 from optimisation.flywheel_optimisation import optimise_flywheel
 from optimisation.optimise_servo import optimise_servo
-from visualization.plotter import plot_mass_vs_flip_time_from_csv, plot_result
-from visualization.pareto import plot_pareto_from_csv
+from visualization.plotter import plot_result
 
 
 

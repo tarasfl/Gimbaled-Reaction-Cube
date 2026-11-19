@@ -1,4 +1,3 @@
-from hardware.cube import Cube
 from dynamics.state import SystemState
 import numpy as np
 

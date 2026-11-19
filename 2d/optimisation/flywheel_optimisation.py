@@ -1,14 +1,8 @@
 from itertools import product
-
 from types import SimpleNamespace
 
-import numpy as np
-
 from hardware.flywheel import Flywheel
-from hardware.cube import Cube
-from simulation.evaluate_simulations import sweep
 from visualization.csv_io import save_csv
-from visualization.plotter import plot_result
 
 from optimisation.optimisation import optimise, select_best_weighted
 

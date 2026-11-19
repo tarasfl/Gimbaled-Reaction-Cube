@@ -1,3 +1,5 @@
+import ast
+
 import matplotlib.pyplot as plt
 import numpy as np
 
@@ -80,15 +82,24 @@ def plot_result(result, cube=None, show=True):
         plt.show()
 
 
+def _row_flywheel_geometry(row):
+    # Current CSVs store the geometry as a `candidate` dict literal; older ones
+    # use separate outer_radius / inner_radius / thickness columns.
+    candidate = getattr(row, "candidate", None)
+    if isinstance(candidate, str):
+        return ast.literal_eval(candidate)
+    return {
+        "outer_radii": row.outer_radius,
+        "inner_radii": row.inner_radius,
+        "thickness": row.thickness,
+    }
+
+
 def _row_flywheel_mass(row):
-    if getattr(row, "flywheel_mass", None) is not None:
-        return row.flywheel_mass
-    # Older CSVs have no mass column, so derive it from the flywheel geometry.
-    return Flywheel(
-        outer_radii=row.outer_radius,
-        inner_radii=row.inner_radius,
-        thickness=row.thickness,
-    ).mass
+    for column in ("flywheel_mass", "component_mass"):
+        if getattr(row, column, None) is not None:
+            return getattr(row, column)
+    return Flywheel(**_row_flywheel_geometry(row)).mass
 
 
 def plot_mass_vs_flip_time_from_csv(path, show=True):
@@ -145,11 +156,8 @@ def plot_fastest_from_csv(cube, path="sweep_results.csv"):
     best = fastest_row(rows)
     print(best)
 
-    cube.flywheel = Flywheel(
-        outer_radii=best.outer_radius,
-        inner_radii=best.inner_radius,
-        thickness=best.thickness,
-    )
+    cube.flywheel = Flywheel(**_row_flywheel_geometry(best))
+    cube.update_total_mass()
     x0 = [0.0, 0.0, np.deg2rad(best.initial_gamma_deg), 0.0]
     result = SimulationRunner(cube).run(
         x0,

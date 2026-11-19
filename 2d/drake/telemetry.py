@@ -1,36 +1,9 @@
 """Add numerical readouts to a self-contained Meshcat recording."""
-from functools import partial
-from http.server import BaseHTTPRequestHandler, SimpleHTTPRequestHandler, ThreadingHTTPServer
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
 from threading import Thread
 
 import numpy as np
-
-
-def write_replay(meshcat_html, result, output):
-    """Keep all values on the same simulation clock as the 3D animation."""
-    state = result["state"]
-    spin_inertia = result["model"].cube.flywheel.inertia
-    # theta, gamma and their rates are the actual Drake coordinates.
-    cmg = spin_inertia * state[:, 5] * state[:, 4] * np.sin(state[:, 1])
-    rows = np.column_stack([
-        result["t"], state[:, 5]*60/(2*np.pi),
-        np.rad2deg(state[:, 1]-result.get("gimbal_display_offset", 0.0)), np.rad2deg(state[:, 0]),
-        np.rad2deg(state[:, 4]), np.rad2deg(state[:, 3]),
-        result["torques"][:, 0], result["torques"][:, 1], cmg,
-    ])
-    angle_note = ("Gimbal angles use the original analytical zero (scene angle minus 90°)."
-                  if result.get("gimbal_display_offset", 0.0) else "Gimbal zero: flywheel disc in XZ.")
-    fields = [
-        ["Time", "s", 3], ["Flywheel", "RPM", 1],
-        ["Gimbal angle", "°", 2], ["Cube angle", "°", 2],
-        ["Gimbal speed", "°/s", 2], ["Cube speed", "°/s", 2],
-        ["Gimbal torque", "N·m", 6], ["Spin motor torque", "N·m", 6],
-        ["CMG contribution", "N·m", 5],
-    ]
-    output.write_text(_render_panel(meshcat_html, rows, fields, "Cube &amp; flywheel",
-                 "Recorded simulation · fixed edge", angle_note,
-                 "CMG is the gyroscopic contribution about the cube edge, not the net torque."))
 
 
 def scene_replay_html(meshcat_html, times, angles, rates, gimbal_angles, gimbal_rates,
@@ -69,14 +42,6 @@ def _render_panel(meshcat_html, rows, fields, title, subtitle, angle_note, note)
     if "</body>" not in meshcat_html:
         raise ValueError("Expected a Meshcat HTML export.")
     return meshcat_html.replace("</body>", panel + "\n</body>")
-
-
-def serve_replay(directory):
-    """Serve only the generated output folder, on this computer."""
-    handler = partial(SimpleHTTPRequestHandler, directory=str(directory.resolve()))
-    server = ThreadingHTTPServer(("127.0.0.1", 0), handler)
-    Thread(target=server.serve_forever, daemon=True).start()
-    return server, f"http://127.0.0.1:{server.server_port}/simulation.html"
 
 
 def serve_scene_replay(html):

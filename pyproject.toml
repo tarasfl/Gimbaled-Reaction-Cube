@@ -1,0 +1,21 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "gimbaled-reaction-cube"
+version = "0.1.0"
+description = "Symbolic and numerical planar reaction-wheel pendulum baseline"
+requires-python = ">=3.11"
+dependencies = ["numpy>=1.26", "scipy>=1.11", "sympy>=1.12", "matplotlib>=3.8"]
+
+[project.optional-dependencies]
+drake = ["drake>=1.58,<2"]
+dev = ["pytest>=8"]
+
+[tool.setuptools.packages.find]
+include = ["reaction_cube*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
