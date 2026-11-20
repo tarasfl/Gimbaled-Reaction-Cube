@@ -1,12 +1,9 @@
-from hardware.flywheel import Flywheel
-from optimisation.flywheel_optimisation import optimise_flywheel
-from optimisation.optimise_servo import optimise_servo
-from visualization.plotter import plot_result
+import numpy as np
 
-
-
-# Shared with the Drake model; each simulation gets fresh hardware.
 from hardware.parameters import make_cube
+from simulation.simulation_runner import SimulationRunner
+
+import visualization.plotter as plotter
 
 cube = make_cube()
 brushless_motor = cube.brushless_motor
@@ -14,46 +11,8 @@ servo_motor = cube.servo_motor
 flywheel = cube.flywheel
 gimbal = cube.gimbal
 
-initial_degs = [-30, -20, -10, 0]
-target_degs = [60, 75, 90, 100]
-
-flywheel_rpms = list(range(1000, 7001, 500))
-
-outer_radius_values = [0.045, 0.050, 0.055, 0.060, 0.063]
-inner_radius_values = [0.020, 0.030, 0.035, 0.040, 0.045]
-thickness_values = [0.006, 0.008, 0.010, 0.0115, 0.014, 0.016]
+simul = SimulationRunner(cube)
+x0 = [np.deg2rad(40.6), 0, 0, 0]
 
 if __name__ == "__main__":
-    best_flywheel = optimise_flywheel(
-        cube,
-        csv_specs="FULL_RANGE_TEST",
-        steps=3,
-        initial_degs=initial_degs,
-        target_degs=target_degs,
-        outer_radius_values=outer_radius_values,
-        inner_radius_values=inner_radius_values,
-        thickness_values=thickness_values,
-        rpms=flywheel_rpms,
-        duration=15.0,
-    )
-
-    # Transfer the winning geometry into the next stage.
-    cube.flywheel = Flywheel(**best_flywheel.candidate)
-    cube.update_total_mass()
-
-    best_run = optimise_servo(
-        cube,
-        flywheel_rpm=best_flywheel.target_rpm,
-        power_limit_w=50.0,
-        steps=3,
-        initial_degs=initial_degs,
-        target_degs=target_degs,
-        duration=15.0,
-    )
-
-    print("Best flywheel:", best_flywheel.candidate)
-    print("Flywheel RPM:", best_flywheel.target_rpm)
-    print("Best servo requirements:", best_run.candidate)
-    print("Flip time:", best_run.flip_time_s)
-
-    plot_result(best_run.result)
+    plotter.plot_result(simul.run(x0, 0, 0))
